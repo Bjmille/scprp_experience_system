@@ -323,7 +323,7 @@ end
 function SCPXP:GetXPForNextLevel(category)
     local currentLevel = self:GetPlayerLevel(category)
     local currentXP = self:GetPlayerXP(category)
-    local nextLevelXP = self:GetXPRequiredForLevel(currentLevel + 1)
+    local nextLevelXP = self:GetTotalXPForLevel(currentLevel + 1)
     
     return nextLevelXP - currentXP
 end
@@ -332,8 +332,8 @@ end
 function SCPXP:GetLevelProgress(category)
     local currentLevel = self:GetPlayerLevel(category)
     local currentXP = self:GetPlayerXP(category)
-    local currentLevelXP = self:GetXPRequiredForLevel(currentLevel)
-    local nextLevelXP = self:GetXPRequiredForLevel(currentLevel + 1)
+    local currentLevelXP = self:GetTotalXPForLevel(currentLevel)
+    local nextLevelXP = self:GetTotalXPForLevel(currentLevel + 1)
     
     if nextLevelXP == currentLevelXP then return 100 end
     
