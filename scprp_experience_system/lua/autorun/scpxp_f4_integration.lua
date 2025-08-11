@@ -44,10 +44,7 @@ function PANEL:Init()
     -- Create category panels
     self:CreateCategoryPanels()
     
-    -- Credit system panel (only for researchers)
-    self:CreateCreditPanel()
-    
-    -- Add spacer to fill remaining space for non-researchers
+    -- Add spacer to fill remaining space
     self.spacer = self:Add("DPanel")
     self.spacer:Dock(FILL)
     self.spacer.Paint = function() end
@@ -164,67 +161,6 @@ function PANEL:CreateCategoryPanels()
     end
 end
 
-function PANEL:CreateCreditPanel()
-    -- Credit system panel (only show for research personnel)
-    self.creditContainer = self:Add("DPanel")
-    self.creditContainer:Dock(TOP)
-    self.creditContainer:DockMargin(0, 0, 0, 15) -- Increased margin
-    self.creditContainer:SetTall(120) -- Increased from 85 to 120
-    self.creditContainer:SetVisible(false) -- Hidden by default
-    
-    self.creditContainer.Paint = function(self, w, h)
-        draw.RoundedBox(8, 0, 0, w, h, Color(52, 152, 219, 50))
-        draw.RoundedBox(8, 0, 0, 4, h, Color(52, 152, 219))
-    end
-    
-    -- Credit system title with better margins
-    local creditTitle = self.creditContainer:Add("DLabel")
-    creditTitle:Dock(TOP)
-    creditTitle:DockMargin(18, 12, 18, 8) -- Increased margins
-    creditTitle:SetTall(28) -- Increased height
-    creditTitle:SetText("Research Credit System")
-    creditTitle:SetFont("DermaDefaultBold") -- Bold font
-    creditTitle:SetTextColor(Color(52, 152, 219))
-    creditTitle:SetContentAlignment(4)
-    
-    -- Credit instructions with better spacing
-    local creditInfo = self.creditContainer:Add("DLabel")
-    creditInfo:Dock(TOP)
-    creditInfo:DockMargin(18, 0, 18, 5) -- Increased margins
-    creditInfo:SetTall(18) -- Increased height
-    creditInfo:SetText("Use '!credit <player_name>' in chat to award XP for research tests")
-    creditInfo:SetFont("DermaDefault")
-    creditInfo:SetTextColor(Color(200, 200, 200))
-    creditInfo:SetContentAlignment(4)
-    
-    -- Auto-approval status with better spacing
-    self.autoApprovalLabel = self.creditContainer:Add("DLabel")
-    self.autoApprovalLabel:Dock(TOP)
-    self.autoApprovalLabel:DockMargin(18, 0, 18, 8) -- Increased margins
-    self.autoApprovalLabel:SetTall(18) -- Increased height
-    self.autoApprovalLabel:SetFont("DermaDefault")
-    self.autoApprovalLabel:SetContentAlignment(4)
-    
-    -- Quick credit buttons container with better spacing
-    local buttonContainer = self.creditContainer:Add("DPanel")
-    buttonContainer:Dock(FILL)
-    buttonContainer:DockMargin(18, 0, 18, 12) -- Increased margins
-    buttonContainer.Paint = function() end
-    
-    self.quickCreditLabel = buttonContainer:Add("DLabel")
-    self.quickCreditLabel:Dock(LEFT)
-    self.quickCreditLabel:SetWide(100) -- Increased width
-    self.quickCreditLabel:SetText("Quick Credit:")
-    self.quickCreditLabel:SetFont("DermaDefault")
-    self.quickCreditLabel:SetTextColor(Color(180, 180, 180))
-    self.quickCreditLabel:SetContentAlignment(4)
-    
-    self.nearbyPlayersPanel = buttonContainer:Add("DPanel")
-    self.nearbyPlayersPanel:Dock(FILL)
-    self.nearbyPlayersPanel:DockMargin(15, 0, 0, 0) -- Increased margin
-    self.nearbyPlayersPanel.Paint = function() end
-end
-
 function PANEL:RefreshData()
     if not SCPXP or not LocalPlayer() or not IsValid(LocalPlayer()) then return end
     
@@ -299,128 +235,6 @@ function PANEL:RefreshData()
             
             panel.jobLabel:SetText(jobText)
         end
-    end
-    
-    -- Update credit system visibility and info
-    self:UpdateCreditSystem()
-    
-    -- Update nearby players for quick credit
-    self:UpdateNearbyPlayers()
-end
-
-function PANEL:UpdateCreditSystem()
-    if not IsValid(self.creditContainer) then return end
-    
-    -- Check if player is research personnel
-    local job = LocalPlayer():getDarkRPVar("job") or ""
-    local isResearcher = string.find(string.lower(job), "researcher") or 
-                        string.find(string.lower(job), "scientist") or 
-                        string.find(string.lower(job), "doctor")
-    
-    self.creditContainer:SetVisible(isResearcher or false)
-    
-    -- Show/hide spacer based on researcher status to maintain proper filling
-    if IsValid(self.spacer) then
-        self.spacer:SetVisible(not isResearcher)
-    end
-    
-    if isResearcher and IsValid(self.autoApprovalLabel) then
-        -- Check if staff are online (simplified check)
-        local staffOnline = false
-        for _, ply in ipairs(player.GetAll()) do
-            if ply ~= LocalPlayer() and ply:IsAdmin() then -- Basic admin check
-                staffOnline = true
-                break
-            end
-        end
-        
-        if staffOnline then
-            self.autoApprovalLabel:SetText("Status: Staff online - Manual approval required")
-            self.autoApprovalLabel:SetTextColor(Color(230, 126, 34))
-        else
-            self.autoApprovalLabel:SetText("Status: No staff online - Auto-approval enabled")
-            self.autoApprovalLabel:SetTextColor(Color(46, 204, 113))
-        end
-    end
-end
-
-function PANEL:UpdateNearbyPlayers()
-    if not IsValid(self.nearbyPlayersPanel) then return end
-    
-    -- Clear existing buttons
-    self.nearbyPlayersPanel:Clear()
-    
-    local job = LocalPlayer():getDarkRPVar("job") or ""
-    local isResearcher = string.find(string.lower(job), "research") or 
-                        string.find(string.lower(job), "scientist") or 
-                        string.find(string.lower(job), "doctor")
-    
-    if not isResearcher then return end
-    
-    -- Find nearby players (within 500 units)
-    local nearbyPlayers = {}
-    local myPos = LocalPlayer():GetPos()
-    
-    for _, ply in ipairs(player.GetAll()) do
-        if ply ~= LocalPlayer() and IsValid(ply) and ply:Alive() then
-            local dist = myPos:Distance(ply:GetPos())
-            if dist <= 500 then
-                table.insert(nearbyPlayers, {player = ply, distance = dist})
-            end
-        end
-    end
-    
-    -- Sort by distance
-    table.sort(nearbyPlayers, function(a, b) return a.distance < b.distance end)
-    
-    -- Create buttons for up to 3 nearest players
-    local buttonCount = math.min(#nearbyPlayers, 3)
-    
-    if buttonCount > 0 then
-        local panelWidth = self.nearbyPlayersPanel:GetWide()
-        local buttonWidth = math.max(80, (panelWidth - (buttonCount - 1) * 5) / buttonCount) -- 5px spacing between buttons
-        local totalWidth = buttonCount * buttonWidth + (buttonCount - 1) * 5
-        local startX = math.max(0, (panelWidth - totalWidth) / 2) -- Center the buttons
-        
-        for i = 1, buttonCount do
-            local playerData = nearbyPlayers[i]
-            local ply = playerData.player
-            
-            local btn = self.nearbyPlayersPanel:Add("DButton")
-            btn:SetSize(buttonWidth, self.nearbyPlayersPanel:GetTall())
-            btn:SetPos(startX + (i-1) * (buttonWidth + 5), 0)
-            btn:SetText("")
-            
-            -- Truncate long names
-            local displayName = ply:Nick()
-            if string.len(displayName) > 12 then
-                displayName = string.sub(displayName, 1, 9) .. "..."
-            end
-            
-            btn.Paint = function(self, w, h)
-                local col = self:IsHovered() and Color(70, 126, 180) or Color(52, 152, 219, 100)
-                draw.RoundedBox(4, 0, 0, w, h, col)
-                draw.SimpleText(displayName, "DermaDefault", w/2, h/2, 
-                    Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-            end
-            
-            btn.DoClick = function()
-                -- Execute the credit command
-                LocalPlayer():ConCommand("say !credit " .. ply:Nick())
-            end
-            
-            -- Tooltip with distance and job
-            btn:SetTooltip(string.format("%s\n%s\n%.0f units away", 
-                ply:Nick(), ply:getDarkRPVar("job") or "Unknown Job", playerData.distance))
-        end
-    else
-        -- No players nearby message
-        local noPlayersLabel = self.nearbyPlayersPanel:Add("DLabel")
-        noPlayersLabel:Dock(FILL)
-        noPlayersLabel:SetText("No players nearby")
-        noPlayersLabel:SetFont("DermaDefault")
-        noPlayersLabel:SetTextColor(Color(120, 120, 120))
-        noPlayersLabel:SetContentAlignment(5)
     end
 end
 
