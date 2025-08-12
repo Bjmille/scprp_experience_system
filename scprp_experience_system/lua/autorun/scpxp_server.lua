@@ -783,149 +783,374 @@ timer.Create("SCPXP_CleanupRequests", 300, 0, function()
     end
 end)
 
+-- Helper function to find player by partial name or ID
+local function FindPlayer(identifier)
+    if not identifier then return nil end
+    
+    -- Try to find by ID first
+    local id = tonumber(identifier)
+    if id then
+        local ply = player.GetByID(id)
+        if IsValid(ply) then return ply end
+    end
+    
+    -- Try to find by partial name
+    local name = string.lower(identifier)
+    for _, ply in ipairs(player.GetAll()) do
+        if string.find(string.lower(ply:Nick()), name) then
+            return ply
+        end
+    end
+    
+    return nil
+end
+
 -- Admin commands for database management
 concommand.Add("scpxp_give", function(ply, cmd, args)
-    if not table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then return end
-    if #args < 4 then 
-        ply:ChatPrint("Usage: scpxp_give <player> <category> <amount> <reason>")
+    -- Allow server console to use this command
+    if IsValid(ply) and not table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then 
+        ply:ChatPrint("[SCPXP] You don't have permission to use this command!")
         return 
     end
     
-    local target = player.GetByID(tonumber(args[1]))
+    if #args < 4 then 
+        local msg = "Usage: scpxp_give <player_name_or_id> <category> <amount> <reason>\nCategories: research, security, dclass, scp\nExample: scpxp_give john research 50 Admin reward"
+        if IsValid(ply) then
+            ply:ChatPrint(msg)
+        else
+            print("[SCPXP] " .. msg)
+        end
+        return 
+    end
+    
+    local target = FindPlayer(args[1])
     if not IsValid(target) then
-        ply:ChatPrint("Invalid player ID")
+        local msg = "Player '" .. args[1] .. "' not found!\nUse player name or ID. Online players:"
+        if IsValid(ply) then
+            ply:ChatPrint(msg)
+            for _, p in ipairs(player.GetAll()) do
+                ply:ChatPrint("  " .. p:EntIndex() .. " - " .. p:Nick())
+            end
+        else
+            print("[SCPXP] " .. msg)
+            for _, p in ipairs(player.GetAll()) do
+                print("  " .. p:EntIndex() .. " - " .. p:Nick())
+            end
+        end
         return
     end
     
-    local category = args[2]
-    local amount = tonumber(args[3]) or 0
-    local reason = table.concat(args, " ", 4)
+    local category = string.lower(args[2])
+    if not SCPXP.Config or not SCPXP.Config.Categories or not SCPXP.Config.Categories[category] then
+        local msg = "Invalid category! Valid categories: research, security, dclass, scp"
+        if IsValid(ply) then
+            ply:ChatPrint(msg)
+        else
+            print("[SCPXP] " .. msg)
+        end
+        return
+    end
     
-    SCPXP:GiveXP(target, category, amount, reason)
-    ply:ChatPrint(string.format("Gave %d %s XP to %s", amount, category, target:Nick()))
+    local amount = tonumber(args[3])
+    if not amount or amount == 0 then
+        local msg = "Invalid amount! Must be a number (can be negative)"
+        if IsValid(ply) then
+            ply:ChatPrint(msg)
+        else
+            print("[SCPXP] " .. msg)
+        end
+        return
+    end
+    
+    local reason = table.concat(args, " ", 4)
+    local giver = IsValid(ply) and ply:Nick() or "Console"
+    
+    SCPXP:GiveXP(target, category, amount, giver .. ": " .. reason)
+    
+    local action = amount > 0 and "Gave" or "Removed"
+    local msg = string.format("[SCPXP] %s %d %s XP %s %s", action, math.abs(amount), category, amount > 0 and "to" or "from", target:Nick())
+    
+    if IsValid(ply) then
+        ply:ChatPrint(msg)
+    else
+        print(msg)
+    end
+    
+    target:ChatPrint(string.format("[SCPXP] %s %s you %d %s XP - %s", giver, string.lower(action), math.abs(amount), category, reason))
 end)
 
 -- View player stats
 concommand.Add("scpxp_stats", function(ply, cmd, args)
-    if not table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then return end
+    -- Allow server console to use this command
+    if IsValid(ply) and not table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then 
+        ply:ChatPrint("[SCPXP] You don't have permission to use this command!")
+        return 
+    end
     
     local target = ply
     if args[1] then
-        target = player.GetByID(tonumber(args[1]))
+        target = FindPlayer(args[1])
+    elseif not IsValid(ply) then
+        -- Console usage without specifying player
+        local msg = "Console usage requires player name/ID: scpxp_stats <player>"
+        print("[SCPXP] " .. msg)
+        return
     end
     
     if not IsValid(target) then
-        ply:ChatPrint("Invalid player")
+        local msg = "Player '" .. (args[1] or "self") .. "' not found!"
+        if IsValid(ply) then
+            ply:ChatPrint(msg)
+        else
+            print("[SCPXP] " .. msg)
+        end
         return
     end
     
     if not target.SCPXPData then
-        ply:ChatPrint(target:Nick() .. " has no XP data")
+        local msg = target:Nick() .. " has no XP data"
+        if IsValid(ply) then
+            ply:ChatPrint("[SCPXP] " .. msg)
+        else
+            print("[SCPXP] " .. msg)
+        end
         return
     end
     
-    ply:ChatPrint("=== " .. target:Nick() .. "'s XP Stats ===")
-    for category, data in pairs(target.SCPXPData) do
-        ply:ChatPrint(string.format("%s: Level %d (%d XP)", 
-            SCPXP.Config.Categories[category].name, data.level, data.totalXP))
+    local header = "=== " .. target:Nick() .. "'s XP Stats ==="
+    if IsValid(ply) then
+        ply:ChatPrint(header)
+    else
+        print(header)
+    end
+    
+    if SCPXP.Config and SCPXP.Config.Categories then
+        for category, data in pairs(target.SCPXPData) do
+            local categoryName = SCPXP.Config.Categories[category] and SCPXP.Config.Categories[category].name or category
+            local msg = string.format("%s: Level %d (%d XP)", categoryName, data.level or 1, data.totalXP or 0)
+            if IsValid(ply) then
+                ply:ChatPrint(msg)
+            else
+                print(msg)
+            end
+        end
+    else
+        local msg = "SCPXP Config not loaded - showing raw data:"
+        if IsValid(ply) then
+            ply:ChatPrint(msg)
+        else
+            print(msg)
+        end
+        for category, data in pairs(target.SCPXPData) do
+            local msg2 = string.format("%s: Level %d (%d XP)", category, data.level or 1, data.totalXP or 0)
+            if IsValid(ply) then
+                ply:ChatPrint(msg2)
+            else
+                print(msg2)
+            end
+        end
     end
 end)
 
 -- View recent XP logs
 concommand.Add("scpxp_logs", function(ply, cmd, args)
-    if not ply:IsSuperAdmin() then return end
+    -- Allow server console to use this command, otherwise require superadmin
+    if IsValid(ply) and not ply:IsSuperAdmin() then 
+        ply:ChatPrint("[SCPXP] You need to be a superadmin to use this command!")
+        return 
+    end
     
     local limit = tonumber(args[1]) or 10
+    if limit > 50 then limit = 50 end -- Cap at 50 to prevent spam
+    
     local result = sql.Query("SELECT * FROM scpxp_logs ORDER BY id DESC LIMIT " .. limit)
     
     if not result then
-        ply:ChatPrint("No XP logs found")
+        local msg = "No XP logs found or database error"
+        if IsValid(ply) then
+            ply:ChatPrint("[SCPXP] " .. msg)
+        else
+            print("[SCPXP] " .. msg)
+        end
         return
     end
     
-    ply:ChatPrint("=== Recent XP Logs ===")
+    local header = "=== Recent " .. #result .. " XP Logs ==="
+    if IsValid(ply) then
+        ply:ChatPrint(header)
+    else
+        print(header)
+    end
+    
     for _, log in ipairs(result) do
-        ply:ChatPrint(string.format("[%s] %s gained %d %s XP - %s", 
-            log.timestamp, log.nick, log.amount, log.category, log.reason))
+        local msg = string.format("[%s] %s gained %d %s XP - %s", 
+            log.timestamp or "Unknown", log.nick or "Unknown", 
+            tonumber(log.amount) or 0, log.category or "unknown", log.reason or "No reason")
+        if IsValid(ply) then
+            ply:ChatPrint(msg)
+        else
+            print(msg)
+        end
     end
 end)
 
 -- View credit approval logs  
 concommand.Add("scpxp_creditlogs", function(ply, cmd, args)
-    if not ply:IsSuperAdmin() then return end
+    if IsValid(ply) and not ply:IsSuperAdmin() then 
+        ply:ChatPrint("[SCPXP] You need to be a superadmin to use this command!")
+        return 
+    end
     
     local limit = tonumber(args[1]) or 10
+    if limit > 50 then limit = 50 end -- Cap at 50 to prevent spam
+    
     local result = sql.Query("SELECT * FROM scpxp_credits ORDER BY id DESC LIMIT " .. limit)
     
     if not result then
-        ply:ChatPrint("No credit logs found")
+        local msg = "No credit logs found or database error"
+        if IsValid(ply) then
+            ply:ChatPrint("[SCPXP] " .. msg)
+        else
+            print("[SCPXP] " .. msg)
+        end
         return
     end
     
-    ply:ChatPrint("=== Recent Credit Approvals ===")
+    local header = "=== Recent " .. #result .. " Credit Approvals ==="
+    if IsValid(ply) then
+        ply:ChatPrint(header)
+    else
+        print(header)
+    end
+    
     for _, log in ipairs(result) do
-        ply:ChatPrint(string.format("[%s] %s -> %s | %s by %s", 
-            log.timestamp, log.researcher_nick, log.target_nick, log.status, log.staff_nick))
+        local msg = string.format("[%s] %s -> %s | %s by %s | Reason: %s", 
+            log.timestamp or "Unknown", 
+            log.researcher_nick or "Unknown", 
+            log.target_nick or "Unknown", 
+            log.status or "Unknown", 
+            log.staff_nick or "Unknown",
+            log.reason or "No reason")
+        if IsValid(ply) then
+            ply:ChatPrint(msg)
+        else
+            print(msg)
+        end
     end
 end)
 
 -- Check player's current job category
 concommand.Add("scpxp_checkjob", function(ply, cmd, args)
-    if not ply:IsSuperAdmin() then return end
+    if IsValid(ply) and not ply:IsSuperAdmin() then 
+        ply:ChatPrint("[SCPXP] You need to be a superadmin to use this command!")
+        return 
+    end
     
     local target = ply
     if args[1] then
-        target = player.GetByID(tonumber(args[1]))
+        target = FindPlayer(args[1])
+    elseif not IsValid(ply) then
+        local msg = "Console usage requires player name/ID: scpxp_checkjob <player>"
+        print("[SCPXP] " .. msg)
+        return
     end
     
     if not IsValid(target) then
-        ply:ChatPrint("Invalid player")
+        local msg = "Player '" .. (args[1] or "self") .. "' not found!"
+        if IsValid(ply) then
+            ply:ChatPrint(msg)
+        else
+            print("[SCPXP] " .. msg)
+        end
         return
     end
     
     local job = target:getDarkRPVar("job") or "Unknown"
     local category = SCPXP:GetJobCategory(job) or "None"
+    local msg = string.format("%s's job: '%s' -> Category: %s", target:Nick(), job, category)
     
-    ply:ChatPrint(string.format("%s's job: '%s' -> Category: %s", target:Nick(), job, category))
+    if IsValid(ply) then
+        ply:ChatPrint("[SCPXP] " .. msg)
+    else
+        print("[SCPXP] " .. msg)
+    end
 end)
 
 -- Force restart timed XP for a player
 concommand.Add("scpxp_restart_timer", function(ply, cmd, args)
-    if not ply:IsSuperAdmin() then return end
+    if IsValid(ply) and not ply:IsSuperAdmin() then 
+        ply:ChatPrint("[SCPXP] You need to be a superadmin to use this command!")
+        return 
+    end
     
     local target = ply
     if args[1] then
-        target = player.GetByID(tonumber(args[1]))
+        target = FindPlayer(args[1])
+    elseif not IsValid(ply) then
+        local msg = "Console usage requires player name/ID: scpxp_restart_timer <player>"
+        print("[SCPXP] " .. msg)
+        return
     end
     
     if not IsValid(target) then
-        ply:ChatPrint("Invalid player")
+        local msg = "Player '" .. (args[1] or "self") .. "' not found!"
+        if IsValid(ply) then
+            ply:ChatPrint(msg)
+        else
+            print("[SCPXP] " .. msg)
+        end
         return
     end
     
     SCPXP:StartTimedXP(target)
-    ply:ChatPrint(string.format("Restarted timed XP for %s", target:Nick()))
+    local msg = string.format("Restarted timed XP for %s", target:Nick())
+    if IsValid(ply) then
+        ply:ChatPrint("[SCPXP] " .. msg)
+    else
+        print("[SCPXP] " .. msg)
+    end
 end)
 
 -- Check staff online status (admin command)
 concommand.Add("scpxp_check_staff", function(ply, cmd, args)
-    if not table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then return end
+    if IsValid(ply) and not table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then 
+        ply:ChatPrint("[SCPXP] You don't have permission to use this command!")
+        return 
+    end
     
     local staff = SCPXP:GetOnlineStaff()
     
     if #staff == 0 then
-        ply:ChatPrint("[SCPXP] No staff currently online - credits will be auto-approved")
+        local msg = "No staff currently online - credits will be auto-approved"
+        if IsValid(ply) then
+            ply:ChatPrint("[SCPXP] " .. msg)
+        else
+            print("[SCPXP] " .. msg)
+        end
     else
-        ply:ChatPrint("[SCPXP] Online staff members (" .. #staff .. "):")
+        local header = "Online staff members (" .. #staff .. "):"
+        if IsValid(ply) then
+            ply:ChatPrint("[SCPXP] " .. header)
+        else
+            print("[SCPXP] " .. header)
+        end
         for _, staffMember in ipairs(staff) do
-            ply:ChatPrint(" - " .. staffMember:GetName() .. " (" .. staffMember:GetUserGroup() .. ")")
+            local msg = " - " .. staffMember:GetName() .. " (" .. staffMember:GetUserGroup() .. ")"
+            if IsValid(ply) then
+                ply:ChatPrint(msg)
+            else
+                print(msg)
+            end
         end
     end
 end)
 
 -- Manually approve/deny pending credits (admin command)
 concommand.Add("scpxp_manual_approval", function(ply, cmd, args)
-    if not table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then return end
+    if not table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then 
+        ply:ChatPrint("[SCPXP] You don't have permission to use this command!")
+        return 
+    end
     
     if #args < 2 then
         ply:ChatPrint("Usage: scpxp_manual_approval <request_number> <approve/deny>")
@@ -947,7 +1172,7 @@ concommand.Add("scpxp_manual_approval", function(ply, cmd, args)
     end
     
     if not requests[requestNum] then
-        ply:ChatPrint("Invalid request number")
+        ply:ChatPrint("Invalid request number (1-" .. #requests .. ")")
         return
     end
     
@@ -956,7 +1181,10 @@ end)
 
 -- View pending credit requests
 concommand.Add("scpxp_pending", function(ply, cmd, args)
-    if not table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then return end
+    if not table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then 
+        ply:ChatPrint("[SCPXP] You don't have permission to use this command!")
+        return 
+    end
     
     local count = 0
     ply:ChatPrint("=== Pending Credit Requests ===")
@@ -979,4 +1207,52 @@ end)
 concommand.Add("scpxp_menu", function(ply, cmd, args)
     net.Start("SCPXP_OpenMenu")
     net.Send(ply)
+end)
+
+-- Debug command to reload player data
+concommand.Add("scpxp_reload_player", function(ply, cmd, args)
+    if not ply:IsSuperAdmin() then 
+        ply:ChatPrint("[SCPXP] You need to be a superadmin to use this command!")
+        return 
+    end
+    
+    local target = ply
+    if args[1] then
+        target = FindPlayer(args[1])
+    end
+    
+    if not IsValid(target) then
+        ply:ChatPrint("Player '" .. (args[1] or "self") .. "' not found!")
+        return
+    end
+    
+    SCPXP:LoadPlayerData(target)
+    ply:ChatPrint(string.format("[SCPXP] Reloaded data for %s", target:Nick()))
+end)
+
+-- List all commands
+concommand.Add("scpxp_help", function(ply, cmd, args)
+    ply:ChatPrint("=== SCPXP Commands ===")
+    
+    if table.HasValue(SCPXP.StaffRanks, ply:GetUserGroup()) then
+        ply:ChatPrint("Staff Commands:")
+        ply:ChatPrint("  scpxp_give <player> <category> <amount> <reason> - Give/remove XP")
+        ply:ChatPrint("  scpxp_stats [player] - View XP stats")
+        ply:ChatPrint("  scpxp_check_staff - Check online staff")
+        ply:ChatPrint("  scpxp_pending - View pending credit requests")
+        ply:ChatPrint("  scpxp_manual_approval <num> <approve/deny> - Manually process credits")
+        ply:ChatPrint("  scpxp_checkjob [player] - Check job category")
+        ply:ChatPrint("  scpxp_restart_timer [player] - Restart timed XP")
+    end
+    
+    if ply:IsSuperAdmin() then
+        ply:ChatPrint("SuperAdmin Commands:")
+        ply:ChatPrint("  scpxp_logs [limit] - View XP transaction logs")
+        ply:ChatPrint("  scpxp_creditlogs [limit] - View credit approval logs")
+        ply:ChatPrint("  scpxp_reload_player [player] - Reload player data from DB")
+    end
+    
+    ply:ChatPrint("Player Commands:")
+    ply:ChatPrint("  !credit <player> - Request research XP (researchers only)")
+    ply:ChatPrint("  scpxp_menu - Open XP menu")
 end)
