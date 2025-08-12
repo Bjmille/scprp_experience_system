@@ -281,6 +281,55 @@ hook.Add("SCPXP_DataUpdated", "SCPXP_F4Refresh", function(data)
     end
 end)
 
+if CLIENT then
+    -- Function to check if player can access a job
+    function SCPXP:CanPlayerAccessJob(jobName)
+        local requirement = self.Config.JobRequirements[jobName]
+        if not requirement then return true end -- No requirement = accessible
+        
+        if not self.PlayerData then return false end
+        
+        local categoryData = self.PlayerData[requirement.category]
+        if not categoryData then return false end
+        
+        return (categoryData.level or 1) >= requirement.level
+    end
+    
+    -- Hook to modify F4 menu job display
+    hook.Add("F4MenuPreDrawJob", "SCPXP_F4JobDisplay", function(job, panel)
+        local jobName = job.name
+        local requirement = SCPXP.Config.JobRequirements[jobName]
+        
+        if requirement then
+            local canAccess = SCPXP:CanPlayerAccessJob(jobName)
+            local categoryName = SCPXP.Config.Categories[requirement.category].name
+            local playerLevel = 0
+            
+            if SCPXP.PlayerData and SCPXP.PlayerData[requirement.category] then
+                playerLevel = SCPXP.PlayerData[requirement.category].level or 1
+            end
+            
+            -- Modify job label to show requirement
+            local originalText = job.name
+            local levelText = string.format(" [%s L%d]", categoryName:sub(1,3):upper(), requirement.level)
+            
+            if not canAccess then
+                -- Red text for inaccessible jobs
+                job.name = originalText .. levelText .. " (Need L" .. requirement.level .. ")"
+                if panel then
+                    panel:SetTextColor(Color(255, 100, 100)) -- Red
+                end
+            else
+                -- Green text for accessible jobs
+                job.name = originalText .. levelText
+                if panel then
+                    panel:SetTextColor(Color(100, 255, 100)) -- Green
+                end
+            end
+        end
+    end)
+end
+
 -- Console command to test the F4 integration
 concommand.Add("scpxp_test_f4", function()
     if onyx and onyx.f4 and onyx.f4.OpenFrame then
