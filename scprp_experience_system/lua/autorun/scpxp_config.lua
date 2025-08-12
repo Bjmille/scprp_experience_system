@@ -10,12 +10,12 @@ SCPXP.Config = {
     -- Categories
     Categories = {
         research = {
-            name = "Research",
+            name = "Research Department",
             color = Color(52, 152, 219),
             icon = "icon16/book.png"
         },
         security = {
-            name = "Security",
+            name = "General Security",
             color = Color(231, 76, 60),
             icon = "icon16/shield.png"
         },
