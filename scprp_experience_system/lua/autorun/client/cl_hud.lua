@@ -1,12 +1,12 @@
--- SCP-RP Experience System - Client HUD
+-- SCP-RP Experience System - Client HUD (Compact Only Version)
 -- File: scprp_experience_system/lua/autorun/client/cl_hud.lua
 
 -- HUD Settings
 SCPXP.HUD = SCPXP.HUD or {}
 SCPXP.HUD.Enabled = true
-SCPXP.HUD.ShowLevel = true
-SCPXP.HUD.ShowProgress = true
-SCPXP.HUD.Position = { x = 50, y = ScrH() - 150 }
+SCPXP.HUD.Dragging = false
+SCPXP.HUD.DragOffset = { x = 0, y = 0 }
+SCPXP.HUD.Position = { x = ScrW() - 270, y = ScrH() - 100 } -- Bottom right positioning
 
 -- Local player data cache
 local playerXP = {
@@ -45,89 +45,104 @@ function SCPXP:DrawXPHUD()
     local currentCategory = self:GetPlayerJobCategory(LocalPlayer())
     if not currentCategory then return end
     
-    -- Draw the HUD
-    self:DrawFullHUD(currentCategory)
+    -- Draw the compact HUD
+    self:DrawCompactHUD(currentCategory)
 end
 
--- Draw full HUD with all categories
-function SCPXP:DrawFullHUD(currentCategory)
+-- Draw compact HUD
+function SCPXP:DrawCompactHUD(currentCategory)
+    local width, height = 250, 40
     local x, y = self.HUD.Position.x, self.HUD.Position.y
-    local width, height = 280, 120
     
-    -- Background
-    surface.SetDrawColor(40, 40, 40, 200)
-    surface.DrawRect(x, y, width, height)
+    local xp = self:GetClientXP(currentCategory)
+    local level = self:GetPlayerLevel({GetClientXP = function() return xp end}, currentCategory)
+    local progress = self:GetLevelProgress({GetClientXP = function() return xp end}, currentCategory)
     
-    -- Header
-    surface.SetDrawColor(60, 60, 60, 255)
-    surface.DrawRect(x, y, width, 25)
+    local categoryName = self:GetCategoryName(currentCategory)
+    local color = self:GetCategoryColor(currentCategory)
     
-    draw.SimpleText("Experience", "DermaDefault", x + 10, y + 5, Color(255, 255, 255), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+    -- Background with shadow
+    self:DrawShadow(x, y, width, height, 2)
+    draw.RoundedBox(6, x, y, width, height, Color(20, 20, 20, 230))
     
-    -- Draw categories
-    local categories = self:GetSortedCategories(currentCategory)
-    local startY = y + 30
-    local lineHeight = 20
+    -- Category color accent
+    draw.RoundedBoxEx(6, x, y, 4, height, Color(color.r, color.g, color.b, 255), true, false, true, false)
     
-    for i, category in ipairs(categories) do
-        local drawY = startY + (i - 1) * lineHeight
-        self:DrawCategoryLine(x + 10, drawY, width - 20, category, category == currentCategory)
+    -- Text with shadow for better visibility
+    draw.SimpleText(categoryName .. " • Lv." .. level, "DermaDefault", x + 13, y + 13, Color(0, 0, 0, 100), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+    draw.SimpleText(categoryName .. " • Lv." .. level, "DermaDefault", x + 12, y + 12, Color(255, 255, 255, 255), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+    
+    draw.SimpleText(self:FormatXP(xp) .. " XP", "DermaDefault", x + 13, y + 27, Color(0, 0, 0, 80), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+    draw.SimpleText(self:FormatXP(xp) .. " XP", "DermaDefault", x + 12, y + 26, Color(180, 180, 180, 255), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+    
+    -- Compact progress bar
+    local barWidth = 60
+    local barHeight = 4
+    local barX = x + width - barWidth - 10
+    local barY = y + 18  -- FIXED: was using x instead of y
+    
+    draw.RoundedBox(2, barX, barY, barWidth, barHeight, Color(40, 40, 40, 200))
+    if progress > 0 then
+        draw.RoundedBox(2, barX, barY, barWidth * progress, barHeight, Color(color.r, color.g, color.b, 255))
+    end
+    
+    -- Handle dragging
+    self:HandleCompactHUDInput(x, y, width, height)
+end
+
+-- Draw shadow effect
+function SCPXP:DrawShadow(x, y, width, height, blur)
+    for i = 1, blur do
+        local alpha = 30 - (i * 5)
+        if alpha > 0 then
+            draw.RoundedBox(6, x - i, y - i, width + (i * 2), height + (i * 2), Color(0, 0, 0, alpha))
+        end
     end
 end
 
--- Draw individual category line
-function SCPXP:DrawCategoryLine(x, y, width, category, isActive)
-    local xp = self:GetClientXP(category)
-    local level = self:GetPlayerLevel({GetClientXP = function() return xp end, SteamID64 = function() return "local" end}, category)
-    local progress = self:GetLevelProgress({GetClientXP = function() return xp end, SteamID64 = function() return "local" end}, category)
-    
-    local color = self:GetCategoryColor(category)
-    local textColor = isActive and Color(255, 255, 255) or Color(200, 200, 200)
-    
-    -- Category name and level
-    local categoryName = self:GetCategoryName(category)
-    local text = categoryName .. " - Level " .. level
-    
-    draw.SimpleText(text, "DermaDefault", x, y, textColor, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
-    
-    -- Progress bar if enabled
-    if self.HUD.ShowProgress then
-        local barWidth = 100
-        local barHeight = 8
-        local barX = x + width - barWidth
-        local barY = y + 2
-        
-        -- Background
-        surface.SetDrawColor(60, 60, 60, 255)
-        surface.DrawRect(barX, barY, barWidth, barHeight)
-        
-        -- Progress
-        surface.SetDrawColor(color.r, color.g, color.b, 255)
-        surface.DrawRect(barX, barY, barWidth * progress, barHeight)
-        
-        -- Border
-        surface.SetDrawColor(100, 100, 100, 255)
-        surface.DrawOutlinedRect(barX, barY, barWidth, barHeight)
-    end
-end
-
--- Get sorted categories (current first)
-function SCPXP:GetSortedCategories(currentCategory)
-    local categories = {}
-    
-    -- Add current category first
-    if currentCategory and self:IsValidCategory(currentCategory) then
-        table.insert(categories, currentCategory)
+-- Handle compact HUD input (dragging)
+function SCPXP:HandleCompactHUDInput(x, y, width, height)
+    -- Don't handle input if VGUI element has focus
+    if vgui.GetKeyboardFocus() then
+        self.HUD.Dragging = false
+        return
     end
     
-    -- Add other categories
-    for category, _ in pairs(self.Config.XPCategories) do
-        if category ~= currentCategory then
-            table.insert(categories, category)
+    local mx, my = gui.MousePos()
+    local mousePressed = input.IsMouseDown(MOUSE_LEFT)
+    
+    -- Handle mouse release - stop dragging
+    if not mousePressed then
+        if self.HUD.Dragging then
+            self.HUD.Dragging = false
+        end
+        self.HUD.LastMouseState = false
+        return
+    end
+    
+    -- Check if this is a new mouse press
+    local justPressed = mousePressed and not self.HUD.LastMouseState
+    self.HUD.LastMouseState = mousePressed
+    
+    -- Start dragging if clicking on HUD
+    if justPressed then
+        local mouseOverHUD = mx >= x and mx <= x + width and my >= y and my <= y + height
+        
+        if mouseOverHUD then
+            self.HUD.Dragging = true
+            self.HUD.DragOffset.x = mx - x
+            self.HUD.DragOffset.y = my - y
         end
     end
     
-    return categories
+    -- Handle dragging
+    if self.HUD.Dragging then
+        local newX = math.Clamp(mx - self.HUD.DragOffset.x, 0, ScrW() - width)
+        local newY = math.Clamp(my - self.HUD.DragOffset.y, 0, ScrH() - height)
+        
+        self.HUD.Position.x = newX
+        self.HUD.Position.y = newY
+    end
 end
 
 -- Simplified player level calculation for client
@@ -175,14 +190,20 @@ concommand.Add("scpxp_toggle_hud", function()
     chat.AddText(Color(100, 255, 100), "[SCPXP] ", Color(255, 255, 255), "HUD " .. (SCPXP.HUD.Enabled and "enabled" or "disabled"))
 end)
 
+concommand.Add("scpxp_reset_hud_position", function()
+    SCPXP.HUD.Position.x = ScrW() - 270
+    SCPXP.HUD.Position.y = ScrH() - 100
+    chat.AddText(Color(100, 255, 100), "[SCPXP] ", Color(255, 255, 255), "HUD position reset to default")
+end)
+
 concommand.Add("scpxp_hud_position", function(ply, cmd, args)
     if #args >= 2 then
         local x = tonumber(args[1])
         local y = tonumber(args[2])
         
         if x and y then
-            SCPXP.HUD.Position.x = math.Clamp(x, 0, ScrW() - 300)
-            SCPXP.HUD.Position.y = math.Clamp(y, 0, ScrH() - 150)
+            SCPXP.HUD.Position.x = math.Clamp(x, 0, ScrW() - 250)
+            SCPXP.HUD.Position.y = math.Clamp(y, 0, ScrH() - 40)
             chat.AddText(Color(100, 255, 100), "[SCPXP] ", Color(255, 255, 255), "HUD position updated")
         end
     else
@@ -203,36 +224,4 @@ end)
 -- Hook into HUD paint
 hook.Add("HUDPaint", "SCPXP_DrawHUD", function()
     SCPXP:DrawXPHUD()
-end)
-
--- Mini HUD for bottom corner
-function SCPXP:DrawMiniHUD()
-    if not self.HUD.Enabled then return end
-    if not LocalPlayer():IsValid() or not LocalPlayer():Alive() then return end
-    
-    local currentCategory = self:GetPlayerJobCategory(LocalPlayer())
-    if not currentCategory then return end
-    
-    local x, y = ScrW() - 200, ScrH() - 50
-    local xp = self:GetClientXP(currentCategory)
-    local level = self:GetPlayerLevel({GetClientXP = function() return xp end}, currentCategory)
-    
-    local categoryName = self:GetCategoryName(currentCategory)
-    local color = self:GetCategoryColor(currentCategory)
-    
-    -- Background
-    surface.SetDrawColor(0, 0, 0, 100)
-    surface.DrawRect(x, y, 180, 30)
-    
-    -- Text
-    draw.SimpleText(categoryName .. " Level " .. level, "DermaDefault", x + 5, y + 8, color, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-    
-    -- XP text
-    draw.SimpleText(self:FormatXP(xp) .. " XP", "DermaDefault", x + 5, y + 20, Color(200, 200, 200), TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-end
-
--- Alternative mini HUD hook
-hook.Add("HUDPaint", "SCPXP_MiniHUD", function()
-    -- Uncomment the line below if you prefer the mini HUD instead of full HUD
-    -- SCPXP:DrawMiniHUD()
 end)
